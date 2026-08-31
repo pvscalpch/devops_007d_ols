@@ -1,0 +1,9 @@
+{
+  "properties": [
+    {
+      "name": "jwt.secret",
+      "type": "java.lang.String",
+      "description": "Clave secreta para firmar y validar los tokens JWT en CarMeet."
+    }
+  ]
+}
