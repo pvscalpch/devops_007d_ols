@@ -1,8 +1,10 @@
 # DevOps 007D
 **Integrantes:** Cristian Bravo y Pascal Pacheco
 ## Descripción
+
 Este repositorio contiene el microservicio `ms-auth-user` del proyecto CarMeet.
 El microservicio se utiliza como base para implementar un flujo de trabajo DevOps utilizando Git, GitHub y GitHub Actions.
+
 **Tecnologías principales:** Java 17, Spring Boot 4, Maven, MySQL, Flyway, Git, GitHub, GitHub Actions.
 ---
 ## 1. Modelos de ramificación evaluados
@@ -197,6 +199,7 @@ GET http://localhost:8090/api/health
 ---
 ## 8. Conclusiones y reflexiones individuales
 ### Cristian Bravo
+
 Bueno por mi parte las cosas que aprendí al hacer esta primera evaluación fue a trabajar de una forma distinta como lo había hecho antes debido a que en su momento trabaje con Github Flow donde cada uno tenia una rama temporal feature donde hacia sus avances en sus ramas clonaba la rama de mi compañero y le añadia las cosas que faltaban esto fue un desafío para mi debido a que me costaba entenderlo desde un inicio las cosas que contribuí fue que arregle el error del mvnw que fallaba solo en Linux, el error de que los pull request se iban a la rama equivocada y agregue el /api/health con su regla de seguridad
 
 ### Pascal Pacheco
