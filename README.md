@@ -1,3 +1,36 @@
+# DevOps 007D
+**Integrantes:** Cristian Bravo y Pascal Pacheco
+## Descripción
+Este repositorio contiene el microservicio `ms-auth-user` del proyecto CarMeet.
+El microservicio se utiliza como base para implementar un flujo de trabajo DevOps utilizando Git, GitHub y GitHub Actions.
+**Tecnologías principales:** Java 17, Spring Boot 4, Maven, MySQL, Flyway, Git, GitHub, GitHub Actions.
+---
+## 1. Modelos de ramificación evaluados
+Antes de definir la estrategia del equipo se compararon tres modelos de ramificación de uso extendido en entornos colaborativos en la nube:
+| Modelo | Ramas que utiliza | Aplicabilidad | Limitaciones |
+|---|---|---|---|
+| **GitFlow** | `main`, `develop`, `feature/*`, `release/*`, `hotfix/*` | Proyectos con versiones formales, varios desarrolladores en paralelo y necesidad de separar lo estable de lo que está en desarrollo | Las ramas viven mucho tiempo; si se despliega muy seguido, los merges se vuelven pesados |
+| **GitHub Flow** | `main` + ramas cortas de feature | Despliegue continuo desde `main`, donde cada Pull Request aprobado llega directo a producción | No contempla varias versiones vivas a la vez ni entornos de QA separados |
+| **Trunk-Based Development** | Una sola rama principal, ramas de horas | Equipos con integración continua madura, feature flags y entregas varias veces al día | Exige pruebas automatizadas sólidas; riesgoso en equipos que recién comienzan |
+---
+## 2. Estrategia adoptada: GitFlow
+Para este proyecto se utilizará **GitFlow**, ya que permite separar el código estable del código en desarrollo y organizar el trabajo mediante ramas.
+
+La estructura principal es:
+- `main`: contiene la versión estable del proyecto.
+- `develop`: rama principal de integración de los cambios.
+- `feature/<nombre>`: utilizada para desarrollar nuevas funcionalidades.
+- `hotfix/<nombre>`: utilizada para corregir errores urgentes.
+### Justificación de la elección
+las razones por la que trabajamos con esta es debido a que nos permite tener un control estricto sobre el ciclo de vida de nuestro software la principal ventaja es que separamos las ramas para poder avanzar simultáneamente sobre la rama develop sin modificar nada del main esto lo diferencia de github flow que manda cada pull request aprobado directo al main y de trunk based que es todo sobre una misma rama
+### Flujo de trabajo
+```
+feature/<nombre>  →  develop  →  main
+hotfix/<nombre>   →  main  (y se propaga de vuelta a develop)
+```
+Las nuevas funcionalidades se desarrollan en ramas `feature` para luego integrarse en `develop`. Las correcciones urgentes se desarrollan en ramas `hotfix` que nacen de `main`, se integran a `main` y se propagan a `develop` para que la corrección no se pierda. Los cambios que llegan a `main` deben estar previamente revisados y validados mediante Pull Request.
+Para reforzar esta estrategia, la **rama por defecto del repositorio es `develop`**, de modo que todo Pull Request nuevo proponga automáticamente `develop` como rama base.
+---
 
 ## 3. Guía de buenas prácticas
 ### 3.1 Naming de ramas
