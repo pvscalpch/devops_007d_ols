@@ -1,0 +1,62 @@
+name: CI - ms-auth-user
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Compilar y probar
+    runs-on: ubuntu-latest
+
+    # Entorno cloud simulado: base de datos efimera solo para este pipeline
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: db_auth
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+
+    steps:
+      - name: Descargar el codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar JDK 17 con cache de dependencias Maven
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Compilar, migrar con Flyway y ejecutar pruebas
+        run: ./mvnw -B -ntp verify
+        env:
+          SPRING_DATASOURCE_URL: 'jdbc:mysql://127.0.0.1:3306/db_auth?useSSL=false&allowPublicKeyRetrieval=true'
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: root
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'clave-solo-para-pruebas-de-ci-1234567890' }}
+
+      - name: Publicar el artefacto .jar generado
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-auth-user-jar
+          path: target/*.jar
+          if-no-files-found: error
+
+      - name: Resumen del pipeline
+        if: always()
+        run: |
+          echo "### Resultado del pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "- Rama: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Estado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
