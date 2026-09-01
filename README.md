@@ -37,13 +37,7 @@ La estructura principal es:
 
 ### Justificación de la elección
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.**
-> Esta sección es una justificación técnica y el encargo prohíbe generarla con IA.
-> Respondan con sus propias palabras:
-> - ¿Por qué GitFlow y no GitHub Flow o Trunk-Based, considerando que son dos personas trabajando en paralelo sobre un microservicio?
-> - ¿Qué ventaja concreta les dio tener `develop` separada de `main` durante este encargo?
-> - ¿En qué caso habrían elegido otro modelo?
-> *(Borrar este bloque una vez redactada la respuesta.)*
+las razones por la que trabajamos con esta es debido a que nos permite tener un control estricto sobre el ciclo de vida de nuestro software la principal ventaja es que separamos las ramas para poder avanzar simultáneamente sobre la rama develop sin modificar nada del main esto lo diferencia de github flow que manda cada pull request aprobado directo al main y de trunk based que es todo sobre una misma rama
 
 ### Flujo de trabajo
 
@@ -185,7 +179,6 @@ git log --all --oneline --graph --decorate
 | 4 | *(pendiente)* release v1.0.0 | `develop` → `main` | | | |
 | 5 | *(pendiente)* hotfix del secreto JWT | `hotfix/jwt-secret-env` → `main` | | | |
 
-> ✍️ **PENDIENTE — completar al cerrar cada Pull Request:** enlace, revisor y fecha.
 
 La trazabilidad completa del historial se encuentra en `docs/trazabilidad.txt`, generado con:
 
@@ -218,14 +211,14 @@ El archivo [`.github/workflows/ci.yml`](.github/workflows/ci.yml) define el pipe
 
 ### Rol dentro de CI/CD
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.**
-> El indicador IE4 evalúa la explicación, no el archivo. Redacten con sus palabras:
 > - ¿Qué problema evita este pipeline que antes había que detectar a mano?
+>   Que llegue a la rama estable codigo que no compila o que sus test fallen
 > - ¿Por qué el secreto `JWT_SECRET` se inyecta desde GitHub Secrets y no se escribe en el código?
+Porque el repositorio es publico y esa es la firma de los token cualquiera que la lea puede fabricar un token y hacerse pasar por cualquier usuario del sistema
 > - ¿Qué pasaría si el pipeline fallara en un Pull Request hacia `main`?
+no mergeariea en el main debido a que al no compilar el main es la rama por asi decirlo estable o funcional para eso se configura una regla de proteccion de rama que exige que el pipeline funcione antes de poder hacer el merge
 > - ¿Qué faltaría para convertir esta integración continua en un despliegue continuo (CD)?
-> *(Borrar este bloque una vez redactada la respuesta.)*
-
+para que se pueda desplegar necesita algo que se pueda desplegar en un entorno real como un docker un servidor o un servicio cloud 
 ### Ejecuciones registradas
 
 | Run | Evento | Rama | Resultado |
@@ -253,8 +246,7 @@ GET http://localhost:8090/api/health
 ---
 
 ## 7. Declaración de uso de Inteligencia Artificial
-
-> ✍️ **PENDIENTE — completar.**
+ las herramientas ia que utilizamos fueron Claude mas que nada para corregir errores al momento de hacer el pull request que se fueron para una rama que no era y en la redaccion del README 
 > Indicar qué herramientas de IA se utilizaron y en qué partes concretas del trabajo
 > (por ejemplo: redacción de documentación, generación del archivo de workflow,
 > diagnóstico de errores del pipeline), y qué revisó y validó el equipo.
