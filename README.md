@@ -30,8 +30,10 @@ las razones por la que trabajamos con esta es debido a que nos permite tener un 
 feature/<nombre>  →  develop  →  main
 hotfix/<nombre>   →  main  (y se propaga de vuelta a develop)
 ```
+
 Las nuevas funcionalidades se desarrollan en ramas `feature` para luego integrarse en `develop`. Las correcciones urgentes se desarrollan en ramas `hotfix` que nacen de `main`, se integran a `main` y se propagan a `develop` para que la corrección no se pierda. Los cambios que llegan a `main` deben estar previamente revisados y validados mediante Pull Request.
 Para reforzar esta estrategia, la **rama por defecto del repositorio es `develop`**, de modo que todo Pull Request nuevo proponga automáticamente `develop` como rama base.
+
 ---
 
 ## 3. Guía de buenas prácticas
