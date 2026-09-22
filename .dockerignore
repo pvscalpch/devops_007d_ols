@@ -1,0 +1,20 @@
+# Artefactos de compilacion: se generan dentro de la imagen
+target/
+
+# Historial y configuracion del repositorio
+.git/
+.gitignore
+.github/
+
+# Configuracion local de editores
+.idea/
+.vscode/
+*.iml
+
+# Documentacion y manifiestos que no participan del build
+*.md
+docs/
+k8s/
+docker-compose.yml
+.env
+.env.example
