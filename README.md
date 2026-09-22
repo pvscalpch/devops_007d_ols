@@ -205,3 +205,5 @@ GET http://localhost:8090/api/health
 Bueno por mi parte las cosas que aprendí al hacer esta primera evaluación fue a trabajar de una forma distinta como lo había hecho antes debido a que en su momento trabaje con Github Flow donde cada uno tenia una rama temporal feature donde hacia sus avances en sus ramas clonaba la rama de mi compañero y le añadia las cosas que faltaban esto fue un desafío para mi debido a que me costaba entenderlo desde un inicio las cosas que contribuí fue que arregle el error del mvnw que fallaba solo en Linux, el error de que los pull request se iban a la rama equivocada y agregue el /api/health con su regla de seguridad
 
 ### Pascal Pacheco
+
+Por mi parte, esta evaluación me sirvió harto para reforzar mis conocimientos sobre Git y GitHub, ya que había varias cosas que no recordaba tan bien o que simplemente no sabía. Esto fue una de las razones por las que tomé este optativo, y creo que hacer el proyecto de forma práctica me ayudó bastante a entender mejor el uso de ramas, Pull Requests y GitFlow.
