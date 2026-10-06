@@ -1,0 +1,27 @@
+*   213fa31 2026-09-01 cristianbv1256-bit Merge pull request #4 from pvscalpch/hotfix/jwt-secret-env
+|\  
+| * 78568f8 2026-09-01 cristianbv1256-bit fix(security): leer jwt.secret desde variable de entorno
+|/  
+* 565a13f 2026-09-01 cristianbv1256-bit Update README.md
+* 16d3373 2026-09-01 cristianbv1256-bit Update README.md
+* 3ebc6a9 2026-09-01 cristianbv1256-bit Update README with project details and GitFlow strategy
+* 37e8269 2026-09-01 cristianbv1256-bit Update README.md
+* eb3de7b 2026-09-01 cristianbv1256-bit Actualizar README
+*   12af590 2026-09-01 cristianbv1256-bit Merge pull request #3 from pvscalpch/docs/readme-completo
+|\  
+| | * b67c1da 2026-09-01 cristianbv1256-bit docs: completar README con modelos de ramificacion, buenas practicas y pipeline
+| | * 50257cd 2026-09-01 cristianbv1256-bit docs: completar README con modelos de ramificacion, buenas practicas y pipeline
+| |/  
+| * ec4926c 2026-09-01 cristianbv1256-bit docs: completar README con modelos de ramificacion, buenas practicas y pipeline
+|/  
+*   a489cb6 2026-09-01 cristianbv1256-bit Merge pull request #2 from pvscalpch/feature/health-endpoint
+|\  
+| * 9d75b53 2026-09-01 cristianbv1256-bit feat(auth): exponer endpoint publico de health check
+|/  
+*   faf5d57 2026-09-01 cristianbv1256-bit Merge pull request #1 from pvscalpch/feature/ci-pipeline
+|\  
+| * 158459e 2026-09-01 cristianbv1256-bit ci: marcar mvnw como ejecutable para el runner de Linux
+| * b5e5a7e 2026-09-01 cristianbv1256-bit ci: agregar pipeline de build y test con GitHub Actions
+| * 4156b54 2026-09-01 Pascal docs: agregar README inicial con estrategia GitFlow
+|/  
+* 896dc11 2026-08-31 Pascal Pacheco chore: commit inicial del microservicio base
