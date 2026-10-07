@@ -1,0 +1,84 @@
+# Orquestacion del microservicio ms-auth-user.
+#
+# Levanta la base de datos y la aplicacion como un solo sistema:
+#   docker compose up -d --wait
+#
+# El flag --wait espera a que los healthcheck pasen antes de devolver
+# el control, en vez de dar por listo el stack apenas arrancan los
+# contenedores.
+
+services:
+
+  # ---------------------------------------------------------------
+  # Base de datos
+  # ---------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: carmeet-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      # Volumen nombrado: los datos sobreviven a `docker compose down`
+      # y a cualquier reinicio del contenedor.
+      - mysql-data:/var/lib/mysql
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      # No basta con que el contenedor este encendido: MySQL tarda
+      # unos 25 segundos en aceptar conexiones la primera vez.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # ---------------------------------------------------------------
+  # Microservicio de autenticacion
+  # ---------------------------------------------------------------
+  app:
+    # En local se construye desde el Dockerfile; en el pipeline se
+    # usa la imagen ya publicada, fijando IMAGE_TAG al SHA del commit.
+    image: ghcr.io/pvscalpch/ms-auth-user:${IMAGE_TAG:-latest}
+    build:
+      context: .
+    container_name: carmeet-auth
+    depends_on:
+      mysql:
+        # Arranca cuando MySQL responde, no cuando el contenedor existe.
+        # Sin esta condicion la aplicacion falla de forma intermitente.
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "${APP_PORT:-8090}:8090"
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8090/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 768M
+
+volumes:
+  mysql-data:
+
+networks:
+  backend:
+    driver: bridge
