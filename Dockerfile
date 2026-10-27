@@ -5,7 +5,7 @@
 # Usa una imagen con Maven y JDK completo. Solo vive durante el
 # build: nada de esta etapa llega a la imagen final.
 # ---------------------------------------------------------------
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 
 WORKDIR /build
 
