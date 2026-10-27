@@ -284,6 +284,7 @@ jobs:
           image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
           severity: CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore   # riesgos aceptados y justificados
           exit-code: '1'   # ESTE es el bloqueo que pide el encargo
 
       - name: Resumen del analisis
