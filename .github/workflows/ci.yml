@@ -108,8 +108,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-tests]
     timeout-minutes: 20
-    # Sin el secreto configurado el analisis no puede ejecutarse.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Solo en push: el analisis de un Pull Request requiere que la
+    # GitHub App de SonarCloud tenga acceso al repositorio, y el
+    # proyecto esta registrado en otra organizacion. En los push se
+    # analiza la rama, que no necesita esa integracion.
+    if: github.event_name == 'push'
 
     services:
       mysql:
@@ -175,6 +178,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: [integration-tests, code-analysis]
     timeout-minutes: 20
+
+    # En push, el Quality Gate de SonarCloud bloquea: si falla, este
+    # job no se ejecuta. En Pull Request el analisis se omite, y la
+    # omision no debe frenar la construccion de la imagen.
+    if: >-
+      !cancelled()
+      && needs.integration-tests.result == 'success'
+      && (needs.code-analysis.result == 'success' || needs.code-analysis.result == 'skipped')
 
     permissions:
       contents: read
