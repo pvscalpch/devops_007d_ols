@@ -26,7 +26,7 @@ RUN mvn -B -ntp clean package -DskipTests
 # Imagen minima, solo con el JRE. Sin Maven, sin JDK, sin codigo
 # fuente.
 # ---------------------------------------------------------------
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 LABEL org.opencontainers.image.title="ms-auth-user" \
       org.opencontainers.image.description="Microservicio de autenticacion de CarMeet" \
