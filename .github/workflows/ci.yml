@@ -247,15 +247,21 @@ jobs:
 
       # Las dependencias declaradas: detecta librerias vulnerables
       # en el pom.xml sin necesidad de construir nada.
+      # Modo offline: Trivy no consulta Maven Central para resolver
+      # los .pom. Sin esto el escaneo falla con un 429, porque la IP
+      # del runner es compartida y el repositorio la bloquea.
       - name: Escanear dependencias del proyecto
+        continue-on-error: true   # informativo: no bloquea el pipeline
         uses: aquasecurity/trivy-action@master
+        env:
+          TRIVY_OFFLINE_SCAN: 'true'
         with:
           scan-type: fs
           scan-ref: .
           format: sarif
           output: trivy-dependencias.sarif
           severity: CRITICAL,HIGH
-          exit-code: '0'   # informativo: no bloquea
+          exit-code: '0'
 
       # La publicacion de los hallazgos es informativa: si fallara,
       # no debe tumbar el job, porque el bloqueo real lo aporta el
@@ -274,6 +280,8 @@ jobs:
       - name: Escanear la imagen y bloquear si hay vulnerabilidades criticas
         if: github.event_name != 'pull_request'   # en un PR la imagen aun no se publica
         uses: aquasecurity/trivy-action@master
+        env:
+          TRIVY_OFFLINE_SCAN: 'true'
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
