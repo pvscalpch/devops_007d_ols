@@ -37,8 +37,10 @@ jobs:
           distribution: temurin
           cache: maven
 
+      # Se excluyen las pruebas etiquetadas como de integracion:
+      # este job corre sin base de datos y debe ser rapido.
       - name: Ejecutar las pruebas unitarias
-        run: ./mvnw -B -ntp test
+        run: ./mvnw -B -ntp test jacoco:report -DexcludedGroups=integration
 
       - name: Publicar el reporte de cobertura
         if: always()
