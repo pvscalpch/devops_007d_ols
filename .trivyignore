@@ -1,0 +1,35 @@
+# Vulnerabilidades conocidas y aceptadas de forma explicita.
+#
+# Todas provienen de dependencias TRANSITIVAS que arrastra
+# spring-boot-starter-parent 4.0.6. No son codigo propio ni estan en
+# la imagen base: el escaneo del sistema operativo (alpine 3.24.3)
+# reporta 0 vulnerabilidades.
+#
+# La correccion consiste en subir el parent de Spring Boot, que es lo
+# que propone el Pull Request abierto por Dependabot. Esa actualizacion
+# esta pendiente de validacion porque implica un cambio de version
+# menor del framework y debe probarse completa.
+#
+# Registrado como deuda tecnica. Este archivo se revisa en cada
+# actualizacion del parent: cuando la dependencia se actualice, la
+# entrada correspondiente debe eliminarse para que el escaner vuelva
+# a vigilarla.
+#
+# Importante: solo se silencian estas vulnerabilidades concretas.
+# Cualquier vulnerabilidad CRITICA nueva sigue deteniendo el pipeline.
+
+# --- org.apache.tomcat.embed:tomcat-embed-core 11.0.21 ---
+CVE-2026-41293
+CVE-2026-43512
+CVE-2026-43515
+CVE-2026-65182
+CVE-2026-65905
+CVE-2026-68525
+
+# --- org.bouncycastle:bcprov-jdk18on 1.81 ---
+CVE-2025-14813
+CVE-2026-8763
+
+# --- org.springframework:spring-webmvc 7.0.7 ---
+CVE-2026-47884
+CVE-2026-47890

@@ -280,7 +280,30 @@ Se combinan tres herramientas, cada una en una capa distinta:
 
 Los hallazgos de Trivy se publican en formato SARIF y aparecen en la pestaña **Security → Code scanning** del repositorio.
 
-**La división de responsabilidades es deliberada.** Dependabot no puede reprobar un pipeline: no es un paso de workflow, sino una configuración del repositorio que abre Pull Requests. Cumple el rol de alerta. El bloqueo lo aportan SonarCloud y Trivy, que sí se ejecutan como pasos y devuelven un código de salida distinto de cero.
+**La división de responsabilidades es deliberada.** Dependabot no puede reprobar un pipeline: no es un paso de workflow, sino una configuración del repositorio que abre Pull Requests. Cumple el rol de alerta. El bloqueo lo aporta Trivy sobre la imagen, que se ejecuta como paso y devuelve un código de salida distinto de cero.
+
+### El bloqueo en funcionamiento
+
+Durante la construcción de este pipeline el mecanismo se activó dos veces de forma real, sin provocarlo:
+
+1. **Dependabot propuso subir `jjwt` de 0.11.5 a 0.13.0.** El pipeline detectó que esa versión cambia la API y rompe la compilación, y el Pull Request quedó en rojo. La actualización no pudo integrarse.
+2. **Trivy detuvo el pipeline por 10 vulnerabilidades `CRITICAL`** en la imagen, antes de permitir el despliegue.
+
+### Riesgos aceptados
+
+El escaneo del sistema operativo de la imagen (`alpine 3.24.3`) reporta **0 vulnerabilidades**, tras actualizar la imagen base del runtime a `eclipse-temurin:25-jre-alpine` siguiendo una propuesta de Dependabot.
+
+Las 10 vulnerabilidades `CRITICAL` restantes están en dependencias transitivas que arrastra `spring-boot-starter-parent 4.0.6`:
+
+| Librería afectada | Vulnerabilidades | Corregida en |
+|---|---|---|
+| `org.apache.tomcat.embed:tomcat-embed-core` 11.0.21 | 6 | 11.0.22 / 11.0.25 |
+| `org.bouncycastle:bcprov-jdk18on` 1.81 | 2 | 1.84 / 1.85 |
+| `org.springframework:spring-webmvc` 7.0.7 | 2 | 7.0.9 |
+
+Las tres se corrigen subiendo el parent de Spring Boot, que es lo que propone un Pull Request abierto por Dependabot. Esa actualización implica un cambio de versión menor del framework y queda pendiente de validación completa.
+
+Mientras tanto, los identificadores concretos están declarados en [`.trivyignore`](.trivyignore) con su justificación y la condición para retirarlos. **Solo se silencian esas vulnerabilidades específicas: cualquier `CRITICAL` nueva sigue deteniendo el pipeline.**
 
 Ningún valor sensible está en el repositorio: `SONAR_TOKEN` y `JWT_SECRET` se inyectan desde GitHub Actions Secrets, y las credenciales de la base de datos desde un archivo `.env` que no se versiona.
 
