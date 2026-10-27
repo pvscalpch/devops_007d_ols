@@ -248,7 +248,7 @@ jobs:
       # Las dependencias declaradas: detecta librerias vulnerables
       # en el pom.xml sin necesidad de construir nada.
       - name: Escanear dependencias del proyecto
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
@@ -257,8 +257,12 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '0'   # informativo: no bloquea
 
+      # La publicacion de los hallazgos es informativa: si fallara,
+      # no debe tumbar el job, porque el bloqueo real lo aporta el
+      # escaneo de la imagen que viene despues.
       - name: Publicar hallazgos en la pestana Security
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-dependencias.sarif
@@ -269,7 +273,7 @@ jobs:
       # de proteccion de rama, impide el merge.
       - name: Escanear la imagen y bloquear si hay vulnerabilidades criticas
         if: github.event_name != 'pull_request'   # en un PR la imagen aun no se publica
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
