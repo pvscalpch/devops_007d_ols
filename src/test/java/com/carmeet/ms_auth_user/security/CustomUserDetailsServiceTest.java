@@ -1,7 +1,12 @@
 package com.carmeet.ms_auth_user.security;
 
-import com.carmeet.ms_auth_user.model.Usuario;
-import com.carmeet.ms_auth_user.repository.UsuarioRepository;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+
+import java.util.Optional;
+
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -9,33 +14,51 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import java.util.Optional;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.when;
 
+import com.carmeet.ms_auth_user.model.Usuario;
+import com.carmeet.ms_auth_user.repository.UsuarioRepository;
+
+/**
+ * Pruebas unitarias de la carga de usuarios para Spring Security.
+ *
+ * Es el punto donde el rol almacenado en la base se convierte en la
+ * autoridad que decide a que endpoints puede entrar cada persona.
+ */
 @ExtendWith(MockitoExtension.class)
 class CustomUserDetailsServiceTest {
-    @Mock UsuarioRepository repo;
-    @InjectMocks CustomUserDetailsService service;
+
+    @Mock
+    private UsuarioRepository repo;
+
+    @InjectMocks
+    private CustomUserDetailsService userDetailsService;
 
     @Test
-    void loadsExistingUserAndAuthority() {
+    @DisplayName("Carga el usuario con su clave cifrada y su rol como autoridad")
+    void cargaUsuarioConSuRol() {
         Usuario usuario = new Usuario();
-        usuario.setUsername("usuario1");
-        usuario.setPassword("hash");
+        usuario.setUsername("cristian");
+        usuario.setPassword("clave-cifrada");
         usuario.setRole("ROLE_ADMIN");
-        when(repo.findByUsername("usuario1")).thenReturn(Optional.of(usuario));
 
-        UserDetails details = service.loadUserByUsername("usuario1");
+        when(repo.findByUsername("cristian")).thenReturn(Optional.of(usuario));
 
-        assertEquals("usuario1", details.getUsername());
-        assertEquals("hash", details.getPassword());
-        assertTrue(details.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN")));
+        UserDetails detalles = userDetailsService.loadUserByUsername("cristian");
+
+        assertThat(detalles.getUsername()).isEqualTo("cristian");
+        assertThat(detalles.getPassword()).isEqualTo("clave-cifrada");
+        assertThat(detalles.getAuthorities())
+                .extracting("authority")
+                .containsExactly("ROLE_ADMIN");
     }
 
     @Test
-    void throwsWhenUserDoesNotExist() {
-        when(repo.findByUsername("desconocido")).thenReturn(Optional.empty());
-        assertThrows(UsernameNotFoundException.class, () -> service.loadUserByUsername("desconocido"));
+    @DisplayName("Un usuario inexistente lanza UsernameNotFoundException")
+    void fallaConUsuarioInexistente() {
+        when(repo.findByUsername("fantasma")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userDetailsService.loadUserByUsername("fantasma"))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessageContaining("fantasma");
     }
 }
