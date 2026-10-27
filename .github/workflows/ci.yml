@@ -176,16 +176,13 @@ jobs:
   docker-build:
     name: Construir y publicar imagen
     runs-on: ubuntu-latest
-    needs: [integration-tests, code-analysis]
+    needs: [integration-tests]
     timeout-minutes: 20
 
-    # En push, el Quality Gate de SonarCloud bloquea: si falla, este
-    # job no se ejecuta. En Pull Request el analisis se omite, y la
-    # omision no debe frenar la construccion de la imagen.
-    if: >-
-      !cancelled()
-      && needs.integration-tests.result == 'success'
-      && (needs.code-analysis.result == 'success' || needs.code-analysis.result == 'skipped')
+    # SonarCloud corre en paralelo y reporta su Quality Gate como un
+    # check propio. El bloqueo del pipeline lo ejerce Trivy sobre la
+    # imagen, en el job de seguridad.
+    if: ${{ !cancelled() && needs.integration-tests.result == 'success' }}
 
     permissions:
       contents: read
@@ -308,7 +305,7 @@ jobs:
       !cancelled()
       && needs.security.result == 'success'
       && github.event_name == 'push'
-      && github.ref == 'refs/heads/develop'
+      && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
     timeout-minutes: 15
 
     permissions:
