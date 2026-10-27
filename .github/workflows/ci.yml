@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Instalar JDK 17 con cache de dependencias Maven
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: temurin
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Instalar JDK 17 con cache de dependencias Maven
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: temurin
@@ -131,7 +131,7 @@ jobs:
           fetch-depth: 0
 
       - name: Instalar JDK 17 con cache de dependencias Maven
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: temurin
