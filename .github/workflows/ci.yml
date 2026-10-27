@@ -161,7 +161,7 @@ jobs:
         if: always()
         run: |
           echo "## Analisis de codigo (SonarCloud)" >> $GITHUB_STEP_SUMMARY
-          echo "- Proyecto: pvscalpch_devops_007d_ols" >> $GITHUB_STEP_SUMMARY
+          echo "- Proyecto: cristianbv1256-bit_devops_007d_ols" >> $GITHUB_STEP_SUMMARY
           echo "- Quality Gate bloqueante: si" >> $GITHUB_STEP_SUMMARY
           echo "- Resultado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
 
