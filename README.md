@@ -234,7 +234,7 @@ La imagen se publica en GitHub Container Registry etiquetada con el SHA del comm
 ghcr.io/pvscalpch/ms-auth-user:sha-<commit>
 ```
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.** Por qué eligieron una construcción en dos etapas y qué ganaron con ella frente a una sola.
+
 
 ## 8. Pruebas automatizadas y política de calidad
 
@@ -317,7 +317,7 @@ Ningún valor sensible está en el repositorio: `SONAR_TOKEN` y `JWT_SECRET` se 
 | `deploy.resources.limits` | `docker-compose.yml` | Techo de CPU y memoria por servicio |
 | `-XX:MaxRAMPercentage=75.0` | `Dockerfile` | La JVM respeta el límite del contenedor en lugar de ver la memoria del anfitrión |
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.** Qué problema concreto evita este esquema de seguridad y qué debería ocurrir si un análisis falla en un Pull Request hacia `main`.
+
 
 ## 10. Despliegue automático y trazabilidad
 
@@ -369,7 +369,7 @@ Verificación del arranque ordenado:
 
 MySQL alcanza el estado saludable a los 17 segundos y la aplicación arranca después, a los 32.
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.** Por qué eligieron Docker Compose como estrategia de orquestación y qué límites tendría frente a un escenario de mayor escala.
+
 
 ---
 
