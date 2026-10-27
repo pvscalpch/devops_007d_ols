@@ -234,7 +234,13 @@ La imagen se publica en GitHub Container Registry etiquetada con el SHA del comm
 ghcr.io/pvscalpch/ms-auth-user:sha-<commit>
 ```
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.** Por qué eligieron una construcción en dos etapas y qué ganaron con ella frente a una sola.
+### Por qué una construcción en dos etapas
+
+Elegimos separar la compilación de la ejecución porque son dos necesidades distintas. Para compilar hace falta Maven, el JDK completo y el repositorio de dependencias descargado; para ejecutar la aplicación no hace falta nada de eso, solo un JRE y el `.jar`.
+
+Con una sola etapa, la imagen que termina corriendo en el servidor llevaría dentro un compilador, un gestor de dependencias y el código fuente completo. Eso tiene dos costos: ocupa varias veces más espacio, y le entrega herramientas a cualquiera que consiga acceso al contenedor. Separando las etapas, la imagen final queda en 406 MB y contiene únicamente lo necesario para que el servicio funcione.
+
+El orden de las instrucciones también fue deliberado. Copiamos el `pom.xml` y resolvemos las dependencias antes de copiar `src`, de modo que Docker guarde esa capa y la reutilice mientras el `pom` no cambie. La diferencia se nota: la primera construcción tardó varios minutos descargando el repositorio de Maven entero, y las siguientes, con solo cambios en el código, fueron mucho más rápidas.
 
 ## 8. Pruebas automatizadas y política de calidad
 
@@ -317,7 +323,15 @@ Ningún valor sensible está en el repositorio: `SONAR_TOKEN` y `JWT_SECRET` se 
 | `deploy.resources.limits` | `docker-compose.yml` | Techo de CPU y memoria por servicio |
 | `-XX:MaxRAMPercentage=75.0` | `Dockerfile` | La JVM respeta el límite del contenedor en lugar de ver la memoria del anfitrión |
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.** Qué problema concreto evita este esquema de seguridad y qué debería ocurrir si un análisis falla en un Pull Request hacia `main`.
+### Qué problema evita este esquema
+
+Evita que una vulnerabilidad conocida llegue a la rama estable sin que nadie se entere. Antes, la única forma de detectarla era que alguien se acordara de revisar las dependencias a mano, y eso no ocurre cuando hay plazos encima.
+
+Los dos casos descritos arriba muestran los dos modos de fallo que cubre. El de `jjwt` es una actualización que parece inofensiva y rompe la compilación: sin pipeline se habría integrado y el error habría aparecido más tarde, lejos de su causa. El de las vulnerabilidades críticas es lo contrario: nada estaba roto, el proyecto compilaba y las pruebas pasaban, pero la imagen cargaba diez fallos de seguridad conocidos. Ningún desarrollador los habría visto leyendo el código.
+
+Si un análisis falla en un Pull Request hacia `main`, la integración no debe permitirse. El check queda en rojo y el revisor lo ve antes de aprobar. Para que eso no dependa del criterio de quien revisa, corresponde configurar una regla de protección de rama que exija el check en verde y deshabilite el botón de merge mientras no se cumpla.
+
+También decidimos no silenciar los hallazgos para que el pipeline pasara. Cuando una vulnerabilidad no se puede corregir de inmediato, se declara en [`.trivyignore`](.trivyignore) con su identificador, su justificación y la condición para retirarla. Un escáner que se ignora deja de servir; uno al que se le declara explícitamente qué se acepta sigue vigilando todo lo demás.
 
 ## 10. Despliegue automático y trazabilidad
 
@@ -369,18 +383,50 @@ Verificación del arranque ordenado:
 
 MySQL alcanza el estado saludable a los 17 segundos y la aplicación arranca después, a los 32.
 
-> ✍️ **PENDIENTE — lo escribe el equipo, sin IA.** Por qué eligieron Docker Compose como estrategia de orquestación y qué límites tendría frente a un escenario de mayor escala.
+### Por qué Docker Compose
+
+Elegimos Docker Compose porque el sistema son tres contenedores que viven en la misma máquina y necesitan arrancar en un orden determinado. Para ese tamaño, Compose resuelve el problema completo con un solo archivo versionado junto al código, y se ejecuta igual en la máquina de cada integrante y en el runner del pipeline. Kubernetes habría resuelto lo mismo a costa de un clúster, varios manifiestos y una curva de aprendizaje que no aportaba nada a un sistema de este tamaño.
+
+El motivo concreto por el que nos hizo falta orquestación, y no simplemente levantar los contenedores por separado, lo descubrimos probando. Al arrancar la aplicación junto a MySQL con comandos sueltos, el microservicio falló con `Connection refused`: había arrancado seis segundos antes de que MySQL terminara de inicializarse y aceptara conexiones. El contenedor de la base figuraba como `Up` desde el primer instante, pero eso no significa que el servicio esté disponible. Esa diferencia es lo que resuelve `depends_on` con `condition: service_healthy`, apoyado en los healthcheck de cada servicio.
+
+**Sus límites.** Compose funciona sobre un solo anfitrión: no reparte contenedores entre varias máquinas, no los reprograma si el nodo cae, y el escalado es manual mediante `--scale`. En un escenario de mayor envergadura —varios nodos, escalado automático según la carga, actualizaciones sin corte de servicio— haría falta un orquestador como Kubernetes, con sus réplicas, sondas de disponibilidad y escalado automático. Para este proyecto esa complejidad no se justifica.
 
 ---
 
 ## 12. Declaración de uso de Inteligencia Artificial
- las herramientas ia que utilizamos fueron Claude mas que nada para corregir errores al momento de hacer el pull request que se fueron para una rama que no era y en la redacción del README 
+
+**Herramienta utilizada:** Claude (Anthropic).
+
+**Evaluación Parcial 1.** Corrección de errores al abrir Pull Requests que se dirigían a una rama incorrecta, y apoyo en la redacción del README.
+
+**Evaluación Parcial 2.**
+
+| Uso | Detalle |
+|---|---|
+| Código de automatización | Redacción inicial del `Dockerfile`, el `docker-compose.yml`, el `.github/workflows/ci.yml` y el `.github/dependabot.yml` |
+| Código de pruebas | Redacción inicial de `JwtUtilTest`, `AuthServiceTest` y `CustomUserDetailsServiceTest` |
+| Depuración | Diagnóstico de los fallos del pipeline: el `mvnw` sin permiso de ejecución, la prueba de integración ejecutándose sin base de datos, el bloqueo de Maven Central al escanear, y la configuración de SonarCloud |
+| Documentación | Estructura y redacción de este README |
+| Referencias | Comparación de modelos de ramificación y de herramientas de análisis |
+
+**Validación realizada por el equipo.** Todo el contenido generado fue revisado y ejecutado antes de integrarse. El `Dockerfile` se probó en local levantando el contenedor contra una base de datos y comprobando el endpoint de salud. Las pruebas se ejecutaron hasta verificar que pasaban las trece. El pipeline se corrigió de forma iterativa hasta obtener los seis jobs en verde, incluido el despliegue verificado.
+
+Las reflexiones individuales de la sección 13 fueron redactadas por cada integrante sin apoyo de inteligencia artificial.
+
+Referencia de citación: <https://bibliotecas.duoc.cl/ia>
+
 ---
-## 8. Conclusiones y reflexiones individuales
+
+## 13. Conclusiones y reflexiones individuales
+
 ### Cristian Bravo
 
 Bueno por mi parte las cosas que aprendí al hacer esta primera evaluación fue a trabajar de una forma distinta como lo había hecho antes debido a que en su momento trabaje con Github Flow donde cada uno tenia una rama temporal feature donde hacia sus avances en sus ramas clonaba la rama de mi compañero y le añadia las cosas que faltaban esto fue un desafío para mi debido a que me costaba entenderlo desde un inicio las cosas que contribuí fue que arregle el error del mvnw que fallaba solo en Linux, el error de que los pull request se iban a la rama equivocada y agregue el /api/health con su regla de seguridad
 
+> ✍️ **Agregar lo aprendido en la EP2.** Material propio según el historial: contenerización del microservicio, construcción del pipeline de seis etapas, pruebas unitarias con Mockito, configuración de SonarCloud y Trivy, y el despliegue automático verificado.
+
 ### Pascal Pacheco
+
+> ✍️ **PENDIENTE — obligatorio, sin IA.** Material propio según el historial: la integración del `docker-compose.yml` a la rama principal, la incorporación del proxy nginx con escalado de réplicas, y las pruebas adicionales de controladores y manejo de excepciones.
 
 Por mi parte, esta evaluación me sirvió harto para reforzar mis conocimientos sobre Git y GitHub, ya que había varias cosas que no recordaba tan bien o que simplemente no sabía. Esto fue una de las razones por las que tomé este optativo, y creo que hacer el proyecto de forma práctica me ayudó bastante a entender mejor el uso de ramas, Pull Requests y GitFlow.
