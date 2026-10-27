@@ -234,6 +234,10 @@ jobs:
     needs: [docker-build]
     timeout-minutes: 15
 
+    # La omision de SonarCloud en los Pull Request no debe propagarse
+    # por la cadena y dejar sin ejecutar el escaneo de seguridad.
+    if: ${{ !cancelled() && needs.docker-build.result == 'success' }}
+
     permissions:
       contents: read
       security-events: write   # para publicar los hallazgos en la pestana Security
@@ -288,7 +292,11 @@ jobs:
     name: Desplegar en entorno simulado
     runs-on: ubuntu-latest
     needs: [security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: >-
+      !cancelled()
+      && needs.security.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/develop'
     timeout-minutes: 15
 
     permissions:
