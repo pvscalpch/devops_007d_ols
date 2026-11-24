@@ -427,6 +427,4 @@ Bueno por mi parte las cosas que aprendí al hacer esta primera evaluación fue 
 
 ### Pascal Pacheco
 
-> ✍️ **PENDIENTE — obligatorio, sin IA.** Material propio según el historial: la integración del `docker-compose.yml` a la rama principal, la incorporación del proxy nginx con escalado de réplicas, y las pruebas adicionales de controladores y manejo de excepciones.
-
 Por mi parte, esta evaluación me sirvió harto para reforzar mis conocimientos sobre Git y GitHub, ya que había varias cosas que no recordaba tan bien o que simplemente no sabía. Esto fue una de las razones por las que tomé este optativo, y creo que hacer el proyecto de forma práctica me ayudó bastante a entender mejor el uso de ramas, Pull Requests y GitFlow.
