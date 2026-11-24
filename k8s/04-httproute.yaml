@@ -1,0 +1,74 @@
+# =====================================================================
+# Exposicion del microservicio hacia el exterior (Gateway API)
+#
+# El Service del archivo anterior es de tipo ClusterIP: alcanzable solo
+# desde dentro del cluster. Para que el microservicio responda desde
+# Internet hacen falta dos recursos de la Gateway API:
+#
+#   - Gateway:   el punto de entrada. En EKS se materializa como un
+#                balanceador de carga de AWS con su propio nombre DNS.
+#   - HTTPRoute: las reglas de enrutamiento sobre ese punto de entrada:
+#                que rutas van a que Service.
+#
+# La separacion tiene un motivo practico: un balanceador de carga cuesta
+# dinero y tarda minutos en aprovisionarse. Al dejarlo como un recurso
+# aparte, en el namespace "default", varios equipos y varios namespaces
+# comparten un mismo punto de entrada y cada uno aporta solo su
+# HTTPRoute. Es tambien una separacion de responsabilidades: el Gateway
+# lo administra quien opera el cluster; el HTTPRoute, quien desarrolla
+# el servicio.
+#
+# Se aplica con:  kubectl apply -f k8s/04-httproute.yaml
+# =====================================================================
+
+# --- Punto de entrada compartido -------------------------------------
+# Si el cluster ya tiene un Gateway (en la clase existia uno en el
+# namespace "default"), este documento se omite y basta con que el
+# HTTPRoute de abajo lo referencie en parentRefs.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-gateway
+  namespace: default
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        # Permite que HTTPRoutes de cualquier namespace se enganchen a
+        # este listener. Sin esto, un Gateway en "default" no aceptaria
+        # la ruta declarada en el namespace ms-auth-user.
+        namespaces:
+          from: All
+---
+# --- Reglas de enrutamiento ------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ms-auth-user
+  namespace: ms-auth-user
+spec:
+  parentRefs:
+    - name: shared-gateway
+      namespace: default
+      # sectionName apunta al listener concreto del Gateway, por su
+      # nombre. Un Gateway puede tener varios (http, https, y otros
+      # puertos), y la ruta debe decir a cual se engancha.
+      sectionName: http
+
+  # No se declaran hostnames: se usa el nombre DNS que asigna el
+  # balanceador de AWS, no un dominio propio. Con un dominio
+  # personalizado, aqui iria por ejemplo "auth.carmeet.cl" y el Gateway
+  # enrutaria por cabecera Host, permitiendo que varios servicios
+  # compartan el mismo balanceador distinguidos solo por el dominio.
+
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: ms-auth-user
+          port: 8090

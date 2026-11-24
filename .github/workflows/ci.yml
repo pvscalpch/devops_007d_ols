@@ -20,6 +20,47 @@ env:
 jobs:
 
   # =================================================================
+  # IE5 - Politica de cumplimiento: auditoria de secretos
+  #
+  # GitLeaks busca patrones de credenciales (tokens, claves de API,
+  # contrasenas) sobre TODA la historia del repositorio, no solo sobre
+  # el ultimo commit. Eso importa porque en Git un secreto borrado
+  # sigue estando en el commit donde se introdujo: cualquiera que clone
+  # el repositorio puede hacer checkout de ese commit y leerlo.
+  #
+  # El job es bloqueante: si encuentra un hallazgo, falla y el pipeline
+  # no construye ni publica la imagen.
+  # =================================================================
+  secret-scan:
+    name: Auditoria de secretos (GitLeaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sin el historial completo GitLeaks solo veria el ultimo
+          # commit y perderia precisamente lo que lo hace util.
+          fetch-depth: 0
+
+      - name: Auditar el historial en busca de credenciales filtradas
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Los falsos positivos conocidos (claves de ejemplo y de
+          # pruebas) se declaran en .gitleaks.toml, igual que los
+          # riesgos aceptados de Trivy se declaran en .trivyignore.
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Resumen de la auditoria de secretos
+        if: always()
+        run: |
+          echo "## Auditoria de secretos (GitLeaks)" >> $GITHUB_STEP_SUMMARY
+          echo "- Alcance: historial completo del repositorio" >> $GITHUB_STEP_SUMMARY
+          echo "- Bloqueante: si" >> $GITHUB_STEP_SUMMARY
+          echo "- Resultado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+  # =================================================================
   # IE2 - Pruebas unitarias: rapidas, sin base de datos
   # =================================================================
   unit-tests:
@@ -176,13 +217,13 @@ jobs:
   docker-build:
     name: Construir y publicar imagen
     runs-on: ubuntu-latest
-    needs: [integration-tests]
+    needs: [integration-tests, secret-scan]
     timeout-minutes: 20
 
     # SonarCloud corre en paralelo y reporta su Quality Gate como un
     # check propio. El bloqueo del pipeline lo ejerce Trivy sobre la
     # imagen, en el job de seguridad.
-    if: ${{ !cancelled() && needs.integration-tests.result == 'success' }}
+    if: ${{ !cancelled() && needs.integration-tests.result == 'success' && needs.secret-scan.result == 'success' }}
 
     permissions:
       contents: read
