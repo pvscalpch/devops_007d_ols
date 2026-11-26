@@ -35,6 +35,15 @@ spec:
       version: v1
   template:
     metadata:
+      annotations:
+        # Prometheus descubre los pods a raspar leyendo estas
+        # anotaciones. Sin ellas, el Prometheus que viene con Istio
+        # solo recogeria las metricas del proxy Envoy, no las de la
+        # aplicacion: peticiones por endpoint, uso de la JVM, estado
+        # del pool de conexiones a la base de datos.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
       labels:
         app: ms-auth-user
         # La etiqueta "version" es la que Istio y Kiali usan para

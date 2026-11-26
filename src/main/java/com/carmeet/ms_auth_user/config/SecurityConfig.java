@@ -35,6 +35,14 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/health").permitAll()
+                        // Observabilidad: Prometheus raspa /actuator/prometheus
+                        // y las sondas de Kubernetes consultan /actuator/health.
+                        // Ninguno de los dos puede presentar un token, asi que
+                        // tienen que quedar abiertos. No se exponen hacia
+                        // Internet: el HTTPRoute del Gateway solo enruta /api,
+                        // de modo que /actuator unicamente es alcanzable desde
+                        // dentro del cluster.
+                        .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
                         .requestMatchers("/auth/register", "/auth/login", "/auth/refresh").permitAll()
                         .requestMatchers("/auth/promote/**", "/auth/demote/**").hasAuthority("ROLE_ADMIN")
                         .anyRequest().authenticated()

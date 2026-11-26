@@ -393,7 +393,226 @@ El motivo concreto por el que nos hizo falta orquestación, y no simplemente lev
 
 ---
 
-## 12. Declaración de uso de Inteligencia Artificial
+## 12. Orquestación en Kubernetes
+
+**Alcance.** Los manifiestos de [`k8s/`](k8s/) e [`istio/`](istio/) describen el despliegue del microservicio en un clúster de Kubernetes con Istio. **No se aplicaron contra un clúster real:** los laboratorios de AWS disponibles para el curso no permiten crear clústeres de Kubernetes, y hacerlo en una cuenta personal tiene costo. Lo que se entrega son los manifiestos y el razonamiento detrás de cada recurso.
+
+### Los recursos y qué resuelve cada uno
+
+| Recurso | Problema que resuelve |
+|---|---|
+| `Namespace` | Aísla el proyecto. Las cargas de trabajo de otros namespaces no ven estos recursos. La etiqueta `istio-injection: enabled` es la que hace que Istio opere aquí: sin ella, las políticas de la carpeta `istio/` no tendrían efecto |
+| `ServiceAccount` | Da al pod una identidad con nombre. Es a lo que apuntan las políticas de Istio, en lugar de a una dirección IP que cambia en cada reinicio |
+| `Secret` | Saca las credenciales del manifiesto del Deployment. El real no se versiona: el campo `data` es base64, que es codificación y no cifrado |
+| `Deployment` | Mantiene N réplicas vivas y las reemplaza si caen. El `selector` es el vínculo con sus pods; si no coincidiera con las etiquetas del template, el Deployment no reconocería a los suyos |
+| `Service` | IP virtual y nombre DNS estables delante de réplicas que van y vienen. `mysql.ms-auth-user.svc.cluster.local` no cambia aunque el pod se reprograme |
+| `Gateway` | Punto de entrada desde Internet. En EKS se materializa como un balanceador de carga de AWS |
+| `HTTPRoute` | Reglas sobre ese punto de entrada: qué ruta va a qué Service, y con qué peso |
+
+### Las tres sondas
+
+Docker Compose tiene una sola noción de salud. Kubernetes separa tres preguntas distintas y actúa diferente en cada una, lo que importa porque confundirlas produce fallos difíciles de diagnosticar:
+
+| Sonda | Pregunta | Si falla |
+|---|---|---|
+| `startupProbe` | ¿Terminó de arrancar? | No pasa nada todavía. Mientras no pase, las otras dos no se evalúan, así que un arranque lento de la JVM no se confunde con un fallo ni provoca un reinicio en bucle |
+| `readinessProbe` | ¿Puede recibir tráfico ahora? | El pod sale de los endpoints del Service, pero **no se reinicia**. Es lo que corresponde si la base de datos deja de responder: el pod sigue vivo y vuelve solo cuando la conexión se recupera |
+| `livenessProbe` | ¿Sigue vivo? | Kubernetes **reinicia** el contenedor. Cubre el caso del proceso colgado, que no termina pero ya no responde |
+
+El detalle de cada recurso, los comandos `kubectl` en orden y una tabla de equivalencias completa con el `docker-compose.yml` están en [`k8s/README.md`](k8s/README.md).
+
+### Istio
+
+Istio es una **malla de servicios**: inyecta un proxy Envoy junto a cada contenedor, y todo el tráfico de entrada y salida del pod pasa por ahí. De eso salen tres capacidades que la aplicación no tiene que programar:
+
+- **Observabilidad sin instrumentar el código.** El proxy ve cada petición y produce métricas de latencia, volumen y errores por par origen-destino.
+- **Control de acceso por identidad.** [`istio/01-authorization-policy.yaml`](istio/01-authorization-policy.yaml) restringe el puerto 3306 de MySQL a la identidad del microservicio de autenticación. Por defecto, dentro de un clúster cualquier pod puede abrir una conexión a cualquier otro; esta política cierra esa red plana.
+- **Reparto de tráfico por peso.** [`istio/02-canary.yaml`](istio/02-canary.yaml) despliega una `v2` en paralelo y le envía el 10% del tráfico. Kubernetes por sí solo no puede hacerlo: su Service balancea a partes iguales entre todos los pods que coincidan con el selector, sin noción de peso.
+
+---
+
+## 13. Estrategia de monitoreo y observabilidad
+
+Monitorear y observar no son lo mismo. **Monitorear** es vigilar un conjunto de indicadores decididos de antemano: si la CPU pasa del 80%, avisar. **Observabilidad** es poder responder preguntas que nadie anticipó, a partir de lo que el sistema ya emite, sin tener que desplegar una versión nueva para averiguarlo. Lo primero sirve para saber *que* algo anda mal; lo segundo, para averiguar *por qué*.
+
+### Los tres pilares
+
+| Pilar | Qué pregunta responde | De dónde sale | Dónde se consulta |
+|---|---|---|---|
+| **Logs** | ¿Qué pasó exactamente, y con qué detalle? | La aplicación escribe a `stdout` | `kubectl logs`, y centralizado en CloudWatch Logs |
+| **Métricas** | ¿Cuánto, con qué frecuencia, desde cuándo? | Micrometer en la aplicación, el proxy Envoy de Istio, y el kubelet | Prometheus y CloudWatch Container Insights |
+| **Trazas** | ¿Por dónde pasó una petición y dónde se demoró? | El proxy Envoy, sin tocar el código | Kiali |
+
+Ninguno sustituye a los otros. Una métrica dice que el 5% de las peticiones devuelve error; el log dice cuál fue la excepción; la traza dice en qué servicio de la cadena se originó.
+
+### Métricas: qué se obtiene y de dónde
+
+**1. De la aplicación**, vía Spring Boot Actuator y Micrometer. El `pom.xml` incorpora `micrometer-registry-prometheus`, que publica las métricas en `/actuator/prometheus` en el formato que Prometheus sabe leer. Las anotaciones `prometheus.io/scrape` del Deployment son las que hacen que Prometheus descubra el pod y lo raspe.
+
+| Métrica | Para qué sirve |
+|---|---|
+| `http_server_requests_seconds_count` | Peticiones por endpoint, método y código de respuesta. Separa el tráfico de `/auth/login` del de `/auth/register` |
+| `http_server_requests_seconds_sum` y `_max` | Latencia por endpoint. El promedio engaña; el máximo muestra la peor experiencia real de un usuario |
+| `hikaricp_connections_active` y `_pending` | Pool de conexiones a MySQL. Si `pending` crece, la base de datos es el cuello de botella y no la aplicación |
+| `jvm_memory_used_bytes` | Memoria del heap. Si sube y no baja tras una recolección, hay una fuga |
+| `jvm_gc_pause_seconds` | Pausas del recolector de basura. Explican picos de latencia que no se ven en el código |
+| `logback_events_total` con `level="error"` | Errores registrados, como métrica. Permite alertar sobre la tasa de errores sin leer un solo log |
+| `process_cpu_usage` | Uso de CPU del proceso |
+
+**2. Del proxy Envoy de Istio**, sin tocar una línea de código Java. Istio deposita estas métricas en el Prometheus que se instala junto con él:
+
+| Métrica | Para qué sirve |
+|---|---|
+| `istio_requests_total` | Peticiones por origen, destino y código. Es lo que dibuja el grafo de Kiali |
+| `istio_request_duration_milliseconds` | Latencia en percentiles (p50, p90, p99) entre cada par de servicios |
+| `istio_tcp_connections_opened_total` | Conexiones hacia MySQL. Es la métrica que se desploma al aplicar la política `DENY` |
+| `response_flags` | Por qué falló una petición: rechazo de política, circuito abierto, tiempo agotado |
+
+La diferencia con el grupo anterior: estas métricas son **por par de servicios**, así que responden "¿quién está llamando a quién y cómo le va?", que la aplicación por sí sola no puede saber.
+
+**3. Del clúster**, vía el complemento *Amazon CloudWatch Observability*, que habilita Container Insights:
+
+| Métrica | Para qué sirve |
+|---|---|
+| `pod_cpu_utilization` y `pod_memory_utilization` | Consumo real frente a los `limits` declarados. Si el uso roza el límite, el contenedor será estrangulado o terminado por falta de memoria |
+| `pod_number_of_container_restarts` | Reinicios. Un número que sube solo casi siempre significa un `livenessProbe` fallando o un proceso que muere |
+| `node_cpu_utilization` | Capacidad del nodo, para saber si hay espacio para más réplicas |
+
+### Logs: qué deja el contenedor
+
+La aplicación escribe a la salida estándar y no a un archivo, que es lo correcto en un contenedor: el motor de contenedores la captura y el log deja de ser problema de la aplicación. Lo que queda registrado:
+
+- El arranque de Spring Boot: puerto, perfil activo, tiempo de inicio.
+- Flyway: qué migraciones aplicó y cuáles ya estaban, con su número de versión.
+- Cada autenticación: `POST /auth/login` y `POST /auth/register` con el nombre de usuario. **Se registra el nombre de usuario, nunca la contraseña ni el token emitido.** Un log es un artefacto que se copia, se reenvía y se conserva meses; una credencial dentro de él es una filtración con fecha diferida.
+- Los intentos rechazados por Spring Security.
+- Los errores de conexión a la base de datos, con su excepción completa.
+- Cualquier excepción no controlada, con su traza de pila.
+
+Se consultan con `kubectl logs -n ms-auth-user deployment/ms-auth-user -f`, pero eso tiene un límite: **el log vive y muere con el pod.** Si el pod se reprograma o se reinicia, el historial anterior desaparece justo cuando hace falta investigar. Esa es la razón de centralizarlos.
+
+### Cómo llegan los logs y las métricas a CloudWatch
+
+Dos complementos del clúster, cada uno para un pilar distinto:
+
+| Complemento | Qué hace | Requisito |
+|---|---|---|
+| **Amazon CloudWatch Observability** | Habilita Container Insights: recoge métricas de CPU, memoria y reinicios de cada contenedor y nodo | La política `CloudWatchAgentServerPolicy` en el rol del nodo |
+| **Fluent Bit** | Se despliega como DaemonSet, un pod por nodo. Lee los archivos de log de los contenedores del nodo y los reenvía a CloudWatch Logs | El mismo rol con permiso de escritura en CloudWatch Logs |
+
+Fluent Bit es un DaemonSet y no un Deployment por un motivo concreto: tiene que haber exactamente una copia **por nodo**, porque lee del disco de ese nodo. Un Deployment con tres réplicas podría poner las tres en la misma máquina y dejar los otros nodos sin recolectar.
+
+Centralizar aporta tres cosas que `kubectl logs` no puede dar: los logs **sobreviven al pod**; se pueden buscar **a través de todas las réplicas a la vez**, en lugar de pod por pod; y se conservan con una política de retención.
+
+Una vez en CloudWatch Logs, la consulta se hace con Logs Insights:
+
+```
+fields @timestamp, @message
+| filter @message like /ERROR/
+| sort @timestamp desc
+| limit 50
+```
+
+```
+fields @timestamp, @message
+| filter @message like /Connection/
+| stats count() by bin(5m)
+```
+
+La segunda muestra cómo un log se convierte en una métrica: contar errores de conexión agrupados en ventanas de cinco minutos convierte una lista de texto en una curva sobre la que se puede alertar.
+
+### Trazas
+
+Kiali lee las métricas que Istio deposita en Prometheus y dibuja el grafo de servicios: qué habla con qué, con cuánta latencia, qué porcentaje de errores, y un candado en cada enlace que va cifrado con mTLS. En un sistema de dos componentes aporta poco; en uno de decenas de microservicios es la diferencia entre encontrar el cuello de botella y adivinarlo.
+
+### Alertas propuestas
+
+Observar sin alertar solo sirve si alguien está mirando la pantalla. Los umbrales que corresponden a este servicio:
+
+| Condición | Umbral | Qué significaría |
+|---|---|---|
+| Tasa de respuestas 5xx | Más de 5% durante 5 min | La aplicación está fallando, no el usuario |
+| Latencia p99 de `/auth/login` | Más de 2 s durante 5 min | Degradación perceptible; probablemente la base de datos |
+| `hikaricp_connections_pending` | Mayor que 0 sostenido | El pool se agotó: las peticiones esperan una conexión libre |
+| Reinicios de contenedor | Más de 3 en 15 min | Un `livenessProbe` fallando en bucle |
+| Memoria del pod | Sobre el 90% del límite | Terminación por falta de memoria inminente |
+| Réplicas listas | Menos que las deseadas durante 10 min | El despliegue no converge |
+
+### Qué se gana en conjunto
+
+Un ejemplo recorriendo los tres pilares. Si los usuarios reportan lentitud al iniciar sesión: la **métrica** `istio_request_duration_milliseconds` muestra que la latencia está en el salto hacia MySQL y no en la aplicación; `hikaricp_connections_pending` confirma que el pool está agotado; el **log** muestra las esperas y los tiempos agotados con su marca de tiempo; la **traza** en Kiali confirma que ninguna otra ruta está afectada. Con un solo pilar, cada uno de esos pasos sería una suposición.
+
+---
+
+## 14. Política de cumplimiento
+
+Cinco controles automáticos, cada uno cubriendo una superficie distinta. Ninguno reemplaza a los otros: un escáner de dependencias no ve una contraseña escrita a mano, y un detector de secretos no ve una vulnerabilidad en una librería.
+
+| Control | Qué vigila | Bloquea |
+|---|---|---|
+| **SonarCloud** | Calidad y seguridad del código propio: bugs, code smells, cobertura. Quality Gate bloqueante con `-Dsonar.qualitygate.wait=true` | Sí |
+| **GitLeaks** | Credenciales filtradas en el código, sobre **toda la historia** del repositorio | Sí |
+| **Trivy (imagen)** | Vulnerabilidades del sistema operativo base y de la aplicación empaquetada | Sí, ante severidad `CRITICAL` |
+| **Trivy (dependencias)** | Librerías vulnerables declaradas en el `pom.xml` | No, informativo |
+| **Dependabot** | Dependencias desactualizadas, con Pull Request automático | No, propone |
+
+### GitLeaks
+
+Lo que lo distingue de una revisión a ojo es el alcance: **escanea la historia completa, no el último commit.** En Git, un secreto borrado sigue estando en el commit que lo introdujo. Aunque se corrija en el commit siguiente y pasen cien commits más, cualquiera que clone el repositorio puede hacer `checkout` de aquel commit y leer el valor. Un `git rm` no borra nada; solo deja de mostrarlo.
+
+El job es bloqueante y `docker-build` depende de él, de modo que un hallazgo detiene el pipeline antes de construir y publicar la imagen.
+
+Los falsos positivos se declaran uno por uno en [`.gitleaks.toml`](.gitleaks.toml), con el mismo criterio que se aplicó a [`.trivyignore`](.trivyignore): se parte del conjunto completo de reglas por defecto, no se desactiva ninguna, y solo se agregan excepciones nombradas y justificadas. Las que hay son claves de desarrollo local, valores de respaldo de los jobs del pipeline y la clave literal que exige HS256 en las pruebas unitarias. Un escáner cuyos falsos positivos se silencian en bloque deja de servir; uno al que se le declara exactamente qué se acepta sigue vigilando todo lo demás.
+
+Por la misma razón, el Secret de Kubernetes no se versiona. [`k8s/01-secrets.example.yaml`](k8s/01-secrets.example.yaml) es una plantilla con valores de relleno; el real se crea con `kubectl create secret` contra el clúster, sin que los valores pasen nunca por Git.
+
+### Protección de la rama main
+
+Los controles anteriores solo sirven si no se pueden esquivar. Un ruleset sobre la rama por defecto impide cuatro cosas:
+
+| Regla | Qué impide |
+|---|---|
+| **Block force pushes** | Reescribir la historia de `main`. Un `push --force` puede borrar commits de otra persona sin dejar rastro |
+| **Restrict deletions** | Borrar la rama principal |
+| **Require a pull request before merging** | Empujar directo a `main` sin revisión |
+| **Require status checks to pass** | Integrar código con el pipeline en rojo |
+
+La lista de excepciones del ruleset se deja **vacía**. Agregar ahí al administrador del repositorio permitiría al dueño saltarse la regla, y una protección que el dueño puede ignorar no protege de lo más probable, que es el error propio bajo presión de tiempo.
+
+Un detalle sobre los status checks exigidos: se exigen los cinco que sí se ejecutan en un Pull Request, es decir la auditoría de secretos, las pruebas unitarias, las pruebas de integración, la construcción de la imagen y el análisis de seguridad. **No** se exigen el análisis de SonarCloud ni el despliegue, porque ambos están configurados para correr solo en `push` y nunca reportarían en un Pull Request: exigirlos dejaría el merge bloqueado para siempre esperando un check que no va a llegar.
+
+---
+
+## 15. Interrupción del pipeline ante un fallo
+
+El pipeline se detiene en cualquiera de estas puertas, y cada etapa posterior depende explícitamente del resultado de la anterior:
+
+| Puerta | Qué comprueba | Qué pasa si falla |
+|---|---|---|
+| Pruebas unitarias | 13 pruebas con Mockito, sin base de datos | Se detiene. No se construye nada |
+| Auditoría de secretos | GitLeaks sobre la historia completa | Se detiene antes de construir la imagen |
+| Pruebas de integración | Arranque real contra MySQL con migraciones Flyway | Se detiene. No se construye la imagen |
+| Análisis de código | Quality Gate de SonarCloud, con espera bloqueante | Se detiene |
+| Análisis de seguridad | Trivy sobre la imagen, severidad `CRITICAL` | Se detiene. No se despliega |
+| Despliegue | Verificación del endpoint de salud tras levantar el stack | Se marca en rojo y se publican los logs |
+
+La condición de cada etapa comprueba de forma explícita el resultado de la anterior en lugar de heredarlo. Esa regla existe por un problema concreto que apareció durante la EP2: un job omitido en un Pull Request propagaba la omisión por toda la cadena, y el escaneo de seguridad terminaba sin ejecutarse.
+
+### Demostración
+
+Para verificar que la interrupción funciona, basta con romper una aserción de una prueba unitaria, por ejemplo afirmar en `JwtUtilTest` que un token adulterado es válido, y empujar el cambio. El job de pruebas unitarias falla, y los jobs siguientes quedan sin ejecutar: no se construye la imagen, no se publica en el registro y no se despliega nada. Con el ruleset activo, el botón de merge del Pull Request queda además deshabilitado.
+
+### Casos reales durante el desarrollo
+
+El mecanismo ya detuvo integraciones defectuosas de verdad, no solo en una prueba preparada:
+
+- Una actualización automática de `jjwt` propuesta por Dependabot **rompía la compilación**. Sin pipeline se habría integrado y el error habría aparecido más tarde, lejos de su causa.
+- El escaneo de Trivy encontró **diez vulnerabilidades críticas** en la imagen. Nada estaba roto: el proyecto compilaba y las pruebas pasaban. Ningún desarrollador las habría visto leyendo el código.
+- Una prueba de integración se ejecutaba en un job sin base de datos y fallaba. El pipeline lo detectó y obligó a separar las pruebas unitarias de las de integración con una etiqueta de JUnit.
+
+---
+
+## 16. Declaración de uso de Inteligencia Artificial
 
 **Herramienta utilizada:** Claude (Anthropic).
 
@@ -409,15 +628,26 @@ El motivo concreto por el que nos hizo falta orquestación, y no simplemente lev
 | Documentación | Estructura y redacción de este README |
 | Referencias | Comparación de modelos de ramificación y de herramientas de análisis |
 
-**Validación realizada por el equipo.** Todo el contenido generado fue revisado y ejecutado antes de integrarse. El `Dockerfile` se probó en local levantando el contenedor contra una base de datos y comprobando el endpoint de salud. Las pruebas se ejecutaron hasta verificar que pasaban las trece. El pipeline se corrigió de forma iterativa hasta obtener los seis jobs en verde, incluido el despliegue verificado.
+**Validación realizada en la EP2.** Todo el contenido generado fue revisado y ejecutado antes de integrarse. El `Dockerfile` se probó en local levantando el contenedor contra una base de datos y comprobando el endpoint de salud. Las pruebas se ejecutaron hasta verificar que pasaban las trece. El pipeline se corrigió de forma iterativa hasta obtener los seis jobs en verde, incluido el despliegue verificado.
 
-Las reflexiones individuales de la sección 13 fueron redactadas por cada integrante sin apoyo de inteligencia artificial.
+**Evaluación Parcial 3.**
+
+| Uso | Detalle |
+|---|---|
+| Manifiestos | Redacción inicial de los archivos de `k8s/` e `istio/`, adaptados al microservicio a partir de los ejemplos mostrados en clase |
+| Configuración | El job de GitLeaks en el pipeline, el archivo `.gitleaks.toml` y la incorporación del registro de Prometheus a Actuator |
+| Documentación | Estructura y redacción de las secciones 12 a 15, y de los archivos `k8s/README.md` e `istio/README.md` |
+| Referencias | Nombres y significado de las métricas de Micrometer, Istio y Container Insights |
+
+**Validación realizada en la EP3.** Los catorce recursos de los manifiestos se verificaron sintácticamente antes de integrarse. La incorporación de `micrometer-registry-prometheus` se compiló y se ejecutaron las trece pruebas unitarias en local antes de empujar el cambio. El job de GitLeaks se comprobó en verde sobre el historial completo del repositorio en la ejecución del Pull Request.
+
+Las reflexiones individuales de la sección 17 fueron redactadas por cada integrante sin apoyo de inteligencia artificial.
 
 Referencia de citación: <https://bibliotecas.duoc.cl/ia>
 
 ---
 
-## 13. Conclusiones y reflexiones individuales
+## 17. Conclusiones y reflexiones individuales
 
 ### Cristian Bravo
 
