@@ -1,0 +1,26 @@
+# =====================================================================
+# Namespace del proyecto
+#
+# Un namespace es un sector aislado del cluster. Todos los recursos que
+# se creen dentro (deployments, pods, servicios, secretos) quedan
+# confinados a el, y las cargas de trabajo de otros namespaces no los
+# ven. Es la unidad basica de separacion en Kubernetes, y por eso cada
+# proyecto desplegado deberia tener el suyo en lugar de caer en
+# "default".
+#
+# Se aplica con:  kubectl apply -f k8s/00-namespace.yaml
+# =====================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ms-auth-user
+  labels:
+    # Esta etiqueta es la que hace que Istio opere sobre este namespace.
+    # Istio esta instalado en el cluster, pero no tiene efecto en los
+    # namespaces que no la llevan: al crearse un pod aqui, el webhook de
+    # Istio le inyecta el sidecar Envoy que intercepta todo su trafico
+    # de entrada y salida. Sin esta etiqueta, los AuthorizationPolicy y
+    # el despliegue Canary de la carpeta istio/ no tendrian efecto.
+    istio-injection: enabled
+    app.kubernetes.io/name: ms-auth-user
+    app.kubernetes.io/part-of: carmeet

@@ -1,0 +1,70 @@
+# =====================================================================
+# Configuracion de GitLeaks - ms-auth-user
+#
+# GitLeaks audita toda la historia del repositorio buscando patrones de
+# credenciales. Las reglas por defecto cubren tokens de AWS, GitHub,
+# Slack, claves privadas, etc., y ademas detectan cadenas de alta
+# entropia asignadas a variables con nombre sospechoso.
+#
+# Este archivo cumple el mismo papel que .trivyignore: declarar de forma
+# explicita y justificada los hallazgos que NO son secretos reales. Un
+# escaner cuyos falsos positivos se silencian en bloque deja de servir;
+# uno al que se le declara exactamente que se acepta sigue vigilando
+# todo lo demas.
+# =====================================================================
+
+title = "ms-auth-user - auditoria de secretos"
+
+[extend]
+# Se parte del conjunto completo de reglas de GitLeaks y solo se
+# agregan excepciones. No se desactiva ninguna regla.
+useDefault = true
+
+[allowlist]
+description = "Claves de ejemplo, de desarrollo local y de pruebas automatizadas"
+
+# Rutas cuyo contenido es, por definicion, material de ejemplo o de
+# prueba. Ninguna de estas credenciales abre nada: no existe el entorno
+# al que pertenecerian.
+paths = [
+  # Plantilla de variables de entorno. El archivo .env real nunca se
+  # versiona: esta en .gitignore. Esta plantilla solo lleva los nombres
+  # de las variables y valores de relleno.
+  '''\.env\.example$''',
+
+  # Pruebas unitarias de JWT. Necesitan una clave literal de 256 bits
+  # porque el algoritmo HS256 la exige; se genera en el propio test y
+  # vive solo durante la ejecucion.
+  '''src/test/java/.*Test\.java$''',
+
+  # Los manifiestos de Kubernetes con sufijo .example.yaml son
+  # plantillas: el Secret real se crea con kubectl en el cluster y
+  # jamas se versiona.
+  '''k8s/.*\.example\.yaml$''',
+
+  # Este mismo archivo cita las cadenas que esta autorizando.
+  '''\.gitleaks\.toml$''',
+]
+
+# Cadenas concretas de relleno. Se enumeran una por una, en lugar de
+# usar un patron amplio como "clave.*", para que cualquier credencial
+# nueva que no este en esta lista siga haciendo fallar la auditoria.
+regexes = [
+  # Valor por defecto de jwt.secret en application.properties. Solo
+  # aplica cuando la variable JWT_SECRET no esta definida, es decir, en
+  # desarrollo local. En CI y en despliegue llega desde los secretos
+  # del repositorio.
+  '''clave_local_de_desarrollo_no_usar_en_produccion''',
+
+  # Valores de respaldo de los jobs del pipeline, usados solo si el
+  # secreto JWT_SECRET no estuviera configurado, contra una base de
+  # datos efimera que se destruye al terminar el job.
+  '''clave-solo-para-pruebas-de-ci-1234567890''',
+  '''clave-solo-para-staging-1234567890abcdef''',
+  '''clave-efimera-de-staging''',
+
+  # Credenciales del contenedor MySQL de servicio en GitHub Actions.
+  # Esa base de datos vive dentro del runner, no acepta conexiones
+  # desde fuera y se elimina al finalizar la ejecucion.
+  '''MYSQL_ROOT_PASSWORD: root''',
+]

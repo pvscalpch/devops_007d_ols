@@ -1,0 +1,176 @@
+# =====================================================================
+# EJERCICIO 2 - Despliegue Canary: liberar una version a una fraccion
+#                del trafico
+#
+# El problema que resuelve: una version nueva pasa todas las pruebas del
+# pipeline y aun asi puede fallar en produccion, porque hay cosas que
+# solo aparecen con trafico y datos reales. Reemplazar el 100% de las
+# replicas de golpe significa que, si la version nueva esta mala, falla
+# para todos los usuarios a la vez.
+#
+# Un despliegue Canary deja las dos versiones corriendo en paralelo y
+# envia solo una fraccion del trafico (aqui el 10%) a la nueva. Se
+# observa en Kiali y en las metricas como le va a ese 10%: latencia,
+# tasa de errores, codigos de respuesta. Si se comporta bien, se sube el
+# peso progresivamente hasta 100 y se retira v1. Si va mal, se devuelve
+# el peso a 0 y el impacto queda acotado a esa fraccion de usuarios.
+#
+# Kubernetes por si solo no puede hacer esto: su Service balancea a
+# partes iguales entre todos los pods que coincidan con el selector, sin
+# nocion de peso. Con un rolling update se puede controlar el ORDEN del
+# reemplazo, pero no el PORCENTAJE de trafico. El reparto por peso lo
+# aporta la malla de servicios.
+#
+# Se aplica con:  kubectl apply -f istio/02-canary.yaml
+# =====================================================================
+
+# --- Version 2 del microservicio -------------------------------------
+# Identica a la v1 de k8s/03-ms-auth-user.yaml salvo en dos cosas: la
+# etiqueta version y la etiqueta de la imagen.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-auth-user-v2
+  namespace: ms-auth-user
+  labels:
+    app: ms-auth-user
+    version: v2
+spec:
+  # Una sola replica: solo va a atender el 10% del trafico. No tiene
+  # sentido reservar para v2 la misma capacidad que para v1.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ms-auth-user
+      version: v2
+  template:
+    metadata:
+      annotations:
+        # Prometheus descubre los pods a raspar leyendo estas
+        # anotaciones. Sin ellas, el Prometheus que viene con Istio
+        # solo recogeria las metricas del proxy Envoy, no las de la
+        # aplicacion: peticiones por endpoint, uso de la JVM, estado
+        # del pool de conexiones a la base de datos.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
+      labels:
+        app: ms-auth-user
+        version: v2
+    spec:
+      # Misma identidad que v1: para la AuthorizationPolicy que protege
+      # MySQL, v2 es el mismo servicio, y por lo tanto tambien puede
+      # conectarse a la base de datos sin cambiar ninguna politica.
+      serviceAccountName: ms-auth-user
+      containers:
+        - name: ms-auth-user
+          image: ghcr.io/pvscalpch/ms-auth-user:v2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://mysql.ms-auth-user.svc.cluster.local:3306/db_auth?useSSL=false&allowPublicKeyRetrieval=true
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ms-auth-user-secrets
+                  key: mysql-root-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ms-auth-user-secrets
+                  key: jwt-secret
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+# --- Service propio para la v2 ---------------------------------------
+# Hace falta un Service separado porque el reparto por peso del HTTPRoute
+# se hace entre backends, y un backend es un Service. Este selecciona
+# unicamente los pods de v2.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-auth-user-v2
+  namespace: ms-auth-user
+  labels:
+    app: ms-auth-user
+    version: v2
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-auth-user
+    version: v2
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+---
+# --- Reparto del trafico ---------------------------------------------
+# Reemplaza al HTTPRoute de k8s/04-httproute.yaml: mismo nombre y mismo
+# namespace, de modo que al aplicarlo Kubernetes actualiza el recurso
+# existente en lugar de crear otro. La aplicacion no se entera de nada:
+# no se reinicia ningun pod y no cambia ni una linea de codigo.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ms-auth-user
+  namespace: ms-auth-user
+spec:
+  parentRefs:
+    - name: shared-gateway
+      namespace: default
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        # Los pesos son relativos, no porcentajes: se reparte en
+        # proporcion a la suma. 90 y 10 suman 100, asi que coinciden con
+        # el porcentaje, pero 9 y 1 darian el mismo resultado.
+        #
+        # La progresion de un Canary consiste en ir editando estos dos
+        # numeros y volver a aplicar el archivo:
+        #   90/10  ->  75/25  ->  50/50  ->  0/100  y se retira v1.
+        # Y si algo sale mal, 100/0 revierte al instante.
+        - name: ms-auth-user
+          port: 8090
+          weight: 90
+        - name: ms-auth-user-v2
+          port: 8090
+          weight: 10

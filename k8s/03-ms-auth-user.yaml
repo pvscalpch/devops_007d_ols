@@ -1,0 +1,168 @@
+# =====================================================================
+# Microservicio de autenticacion ms-auth-user
+#
+# Despliega la misma imagen que publica el pipeline en GitHub Container
+# Registry. Se usa una etiqueta de version explicita y no "latest":
+# "latest" es un alias movil, de modo que dos pods creados en momentos
+# distintos podrian terminar corriendo codigo distinto, y nadie sabria
+# que version esta en ejecucion. Esa es la misma razon por la que el
+# despliegue de la EP2 usa la etiqueta sha-<commit>.
+#
+# Se aplica con:  kubectl apply -f k8s/03-ms-auth-user.yaml
+# =====================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ms-auth-user
+  namespace: ms-auth-user
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-auth-user
+  namespace: ms-auth-user
+  labels:
+    app: ms-auth-user
+    version: v1
+spec:
+  # Dos replicas: si una cae, el Service sigue teniendo una sana a la que
+  # enrutar. Con una sola replica, cualquier reinicio es una caida del
+  # servicio.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-auth-user
+      version: v1
+  template:
+    metadata:
+      annotations:
+        # Prometheus descubre los pods a raspar leyendo estas
+        # anotaciones. Sin ellas, el Prometheus que viene con Istio
+        # solo recogeria las metricas del proxy Envoy, no las de la
+        # aplicacion: peticiones por endpoint, uso de la JVM, estado
+        # del pool de conexiones a la base de datos.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
+      labels:
+        app: ms-auth-user
+        # La etiqueta "version" es la que Istio y Kiali usan para
+        # distinguir subconjuntos del mismo servicio. Es la base del
+        # despliegue Canary de istio/02-canary.yaml: sin ella no habria
+        # forma de repartir el trafico entre v1 y v2.
+        version: v1
+    spec:
+      serviceAccountName: ms-auth-user
+      containers:
+        - name: ms-auth-user
+          image: ghcr.io/pvscalpch/ms-auth-user:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+          env:
+            # El host es el nombre del Service de MySQL. Kubernetes lo
+            # resuelve por DNS interno; no hace falta conocer ninguna IP.
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://mysql.ms-auth-user.svc.cluster.local:3306/db_auth?useSSL=false&allowPublicKeyRetrieval=true
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ms-auth-user-secrets
+                  key: mysql-root-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ms-auth-user-secrets
+                  key: jwt-secret
+
+          # Las tres sondas cubren tres preguntas distintas, y por eso no
+          # son redundantes:
+
+          # 1. startupProbe: "ya termino de arrancar?" Una JVM con Spring
+          #    Boot y migraciones de Flyway tarda mas que un proceso Node.
+          #    Mientras esta sonda no pase, las otras dos no se evaluan,
+          #    asi que un arranque lento no se confunde con un fallo y no
+          #    provoca un reinicio en bucle.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30   # hasta 150 s para arrancar
+
+          # 2. readinessProbe: "puede recibir trafico ahora?" Si falla, el
+          #    pod se saca de los endpoints del Service pero NO se
+          #    reinicia. Es lo que ocurre, por ejemplo, si la base de
+          #    datos deja de responder: el pod sigue vivo y vuelve a
+          #    recibir trafico cuando la conexion se recupera.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # 3. livenessProbe: "sigue vivo?" Si falla, Kubernetes reinicia
+          #    el contenedor. Cubre el caso del proceso colgado, que no
+          #    termina pero ya no responde. El umbral es mas tolerante que
+          #    el de readiness para no reiniciar por un pico pasajero.
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+
+          resources:
+            # requests es lo que el planificador reserva para decidir en
+            # que nodo cabe este pod; limits es el techo que el nodo
+            # impone en ejecucion. Sin requests, Kubernetes planifica a
+            # ciegas; sin limits, un pod puede agotar el nodo completo.
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+          # Endurecimiento del contenedor. La imagen ya corre como el
+          # usuario "spring" (ver Dockerfile); aqui se declara ademas al
+          # nivel del orquestador, que es el que lo hace exigible.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # la JVM escribe en /tmp
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-auth-user
+  namespace: ms-auth-user
+  labels:
+    app: ms-auth-user
+spec:
+  type: ClusterIP
+  # El selector incluye "version: v1" a proposito. Asi este Service
+  # representa exactamente el subconjunto v1, y el reparto de trafico
+  # entre v1 y v2 se puede controlar por peso en el HTTPRoute. Si el
+  # selector fuera solo "app: ms-auth-user", el Service capturaria
+  # tambien los pods de v2 y el reparto quedaria fuera de control:
+  # Kubernetes balancearia a ciegas entre todas las replicas.
+  selector:
+    app: ms-auth-user
+    version: v1
+  ports:
+    # Prefijo "http" para que Istio interprete el trafico como HTTP y
+    # pueda producir metricas por ruta y por codigo de respuesta. Con un
+    # nombre sin prefijo reconocible, Envoy lo trataria como TCP opaco y
+    # esas metricas no existirian.
+    - name: http
+      port: 8090
+      targetPort: http

@@ -1,0 +1,74 @@
+# =====================================================================
+# EJERCICIO 1 - AuthorizationPolicy: control de trafico entre servicios
+#
+# Esto es un recurso de Istio, no de Kubernetes: fijarse en apiVersion,
+# que es security.istio.io. Aplicado en un cluster sin Istio instalado,
+# la API de Kubernetes lo rechaza porque no conoce ese tipo de recurso.
+#
+# Que hace: decide que trafico puede llegar al puerto 3306 de MySQL. No
+# lo decide por direccion IP, sino por IDENTIDAD del servicio que llama,
+# que es el ServiceAccount del pod de origen. Esa identidad viaja en el
+# certificado mTLS que Istio emite para cada carga de trabajo, asi que
+# no se puede falsificar cambiando de IP.
+#
+# Por que importa: por defecto, dentro de un cluster de Kubernetes
+# cualquier pod puede abrir una conexion a cualquier otro. Una red plana.
+# Si un atacante compromete un contenedor cualquiera, llega a la base de
+# datos. Con esta politica, solo el microservicio de autenticacion puede
+# hablar con MySQL, y ningun otro pod del namespace lo alcanza.
+#
+# Se aplica con:  kubectl apply -f istio/01-authorization-policy.yaml
+# =====================================================================
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: mysql-solo-desde-ms-auth-user
+  namespace: ms-auth-user
+spec:
+  # A que cargas de trabajo se les aplica: las que llevan esta etiqueta.
+  # La politica protege el DESTINO, no el origen.
+  selector:
+    matchLabels:
+      app: mysql
+
+  # ------------------------------------------------------------------
+  # ALLOW / DENY: la diferencia no es simetrica, y es el punto del
+  # ejercicio.
+  #
+  #   action: ALLOW  -> lista blanca. Se permite SOLO lo que coincide con
+  #                     las reglas; todo el resto del trafico hacia MySQL
+  #                     queda denegado de forma implicita. Es el modo
+  #                     correcto para produccion.
+  #
+  #   action: DENY   -> lista negra. Se bloquea lo que coincide y se
+  #                     permite todo lo demas.
+  #
+  # La demostracion en clase consistio en cambiar este valor a DENY,
+  # volver a aplicar el archivo y ver en los logs del microservicio el
+  # error de conexion a la base de datos ("Connection lost"), con el
+  # enlace hacia MySQL marcado en rojo en el grafo de Kiali. Despues se
+  # devuelve a ALLOW, se vuelve a aplicar y el trafico se restablece sin
+  # reiniciar ningun pod y sin tocar la aplicacion.
+  #
+  # Eso es configuracion declarativa: el estado deseado se describe en un
+  # archivo versionado, y el cluster converge hacia el. El archivo es la
+  # unica fuente de verdad; nadie "arregla" nada entrando a una maquina.
+  # ------------------------------------------------------------------
+  action: ALLOW
+
+  rules:
+    - from:
+        - source:
+            # Formato de la identidad:
+            #   cluster.local/ns/<namespace>/sa/<serviceaccount>
+            # Corresponde al ServiceAccount "ms-auth-user" declarado en
+            # k8s/03-ms-auth-user.yaml. Por esto conviene crear
+            # ServiceAccounts con nombre propio en lugar de usar el
+            # "default" del namespace: sin uno, todas las cargas de
+            # trabajo comparten identidad y no hay nada que distinguir.
+            principals:
+              - cluster.local/ns/ms-auth-user/sa/ms-auth-user
+      to:
+        - operation:
+            ports:
+              - "3306"

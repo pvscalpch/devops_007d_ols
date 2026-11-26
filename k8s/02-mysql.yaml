@@ -1,0 +1,117 @@
+# =====================================================================
+# Base de datos MySQL
+#
+# Se despliega primero, antes del microservicio, porque ms-auth-user la
+# necesita para arrancar: Flyway corre las migraciones contra ella en el
+# arranque. Es el mismo problema de orden que resolvimos en la EP2 con
+# "depends_on: condition: service_healthy" en Docker Compose, pero en
+# Kubernetes se resuelve de otra forma: el Service de MySQL solo empieza
+# a enrutar trafico cuando su readinessProbe pasa, y el pod de la
+# aplicacion se reinicia hasta que la conexion funciona.
+#
+# Este archivo crea tres recursos separados por "---": un ServiceAccount,
+# un Deployment y un Service. Podrian estar en tres archivos distintos;
+# agruparlos es criterio propio, y aqui se agrupan porque los tres
+# describen un unico componente.
+#
+# Se aplica con:  kubectl apply -f k8s/02-mysql.yaml
+# =====================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mysql
+  namespace: ms-auth-user
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: ms-auth-user
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  # El selector es el vinculo entre el Deployment y sus pods: el
+  # Deployment vigila los pods que llevan estas etiquetas y mantiene su
+  # numero igual a "replicas". Las etiquetas del template deben coincidir
+  # con el selector, o el Deployment no reconoceria a sus propios pods.
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      # El ServiceAccount con nombre propio no es decorativo: es la
+      # identidad con la que Istio reconoce a este pod, y es lo que
+      # permite escribir politicas por servicio en lugar de por IP.
+      serviceAccountName: mysql
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - name: tcp-mysql
+              containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ms-auth-user-secrets
+                  key: mysql-root-password
+            - name: MYSQL_DATABASE
+              value: db_auth
+          # El equivalente en Kubernetes del HEALTHCHECK del Dockerfile.
+          # Un contenedor en estado "Running" no significa que el servicio
+          # de dentro acepte conexiones: MySQL tarda unos segundos en
+          # inicializar el directorio de datos. Mientras este probe no
+          # pase, el Service no enruta trafico hacia este pod.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: datos
+              mountPath: /var/lib/mysql
+      volumes:
+        # emptyDir vive y muere con el pod: si el pod se reprograma, los
+        # datos se pierden. Es aceptable para una demostracion, pero no
+        # para una base de datos real. Lo correcto en produccion es un
+        # StatefulSet con un volumeClaimTemplate que reclame un
+        # PersistentVolume (en EKS, un volumen EBS), de modo que el
+        # almacenamiento sobreviva al pod y conserve su identidad.
+        - name: datos
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: ms-auth-user
+spec:
+  # ClusterIP: una IP virtual estable alcanzable solo desde dentro del
+  # cluster. La base de datos no se expone hacia afuera. El microservicio
+  # la alcanza por nombre DNS: mysql.ms-auth-user.svc.cluster.local
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+    # El nombre del puerto importa con Istio: el prefijo declara el
+    # protocolo. "tcp-" le indica a Envoy que es trafico TCP opaco y no
+    # debe intentar interpretarlo como HTTP.
+    - name: tcp-mysql
+      port: 3306
+      targetPort: tcp-mysql
